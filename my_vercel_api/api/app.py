@@ -1,38 +1,68 @@
-from fastapi import FastAPI, Form
+from fastapi import FastAPI, Form, UploadFile, File
 from fastapi.responses import JSONResponse
 from gradio_client import Client, handle_file
 import requests
+import shutil
+import os
 
-app = FastAPI()
+app = FastAPI(title="Egyptian ID Extractor")
 
-# اسم الـ Space على Hugging Face
+# =====================
+# 🔹 إعداد Gradio Client
+# =====================
 GRADIO_SPACE = "MohamedKhalf30/ID_verfication_3"
 API_NAME = "/predict_id_gradio"
-
 client = Client(GRADIO_SPACE)
 
+# =====================
+# 🔹 Endpoint الأساسي
+# =====================
 @app.post("/predict")
-async def predict(image_url: str = Form(...)):
+async def predict(
+    image_url: str = Form(None),
+    file: UploadFile = File(None)
+):
     """
-    توقع الرقم القومي من رابط صورة
+    توقع الرقم القومي من:
+    1️⃣ رابط صورة (image_url)
+    2️⃣ رفع صورة مباشرة (file)
     """
     try:
-        # تحميل الصورة من الرابط
-        resp = requests.get(image_url)
-        if resp.status_code != 200:
-            return JSONResponse(content={"status": "failed", "message": "فشل تحميل الصورة"}, status_code=400)
+        tmp_path = "/tmp/temp_image.jpg"
 
-        # حفظ الصورة مؤقتًا
-        with open("/tmp/temp_image.jpg", "wb") as f:
-            f.write(resp.content)
+        if image_url:
+            # تحميل الصورة من الإنترنت
+            resp = requests.get(image_url, stream=True)
+            if resp.status_code != 200:
+                return JSONResponse(content={"status": "failed", "message": "فشل تحميل الصورة"}, status_code=400)
+            with open(tmp_path, "wb") as f:
+                shutil.copyfileobj(resp.raw, f)
 
-        # استخدام Gradio Client
+        elif file:
+            # رفع الصورة مباشرة
+            with open(tmp_path, "wb") as f:
+                shutil.copyfileobj(file.file, f)
+
+        else:
+            return JSONResponse(content={"status": "failed", "message": "يرجى إرسال image_url أو رفع ملف"}, status_code=400)
+
+        # استخدام Gradio Client للتنبؤ
         result = client.predict(
-            image=handle_file("/tmp/temp_image.jpg"),
+            image=handle_file(tmp_path),
             api_name=API_NAME
         )
+
+        # حذف الصورة المؤقتة
+        os.remove(tmp_path)
 
         return JSONResponse(content={"status": "success", "result": result})
 
     except Exception as e:
         return JSONResponse(content={"status": "failed", "message": str(e)}, status_code=500)
+
+# =====================
+# 🔹 Health Check
+# =====================
+@app.get("/health")
+async def health():
+    return {"status": "healthy", "message": "✅ API جاهز"}
