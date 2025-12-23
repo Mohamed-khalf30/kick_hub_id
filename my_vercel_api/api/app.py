@@ -21,46 +21,13 @@ def health():
 
 
 @app.post("/predict")
-async def predict(
-    file: UploadFile = File(None),
-    image_url: str = Form(None)
-):
-    """
-    يقبل:
-    - file (multipart)
-    - أو image_url (form field)
-    """
-    if not file and not image_url:
-        return JSONResponse(status_code=400, content={"error": "Provide file or image_url"})
-
+async def predict(image_url: str = Form(...)):
     try:
-        # 1️⃣ لو جاية كـ URL
-        if image_url:
-            result = client.predict(
-                image=handle_file(image_url),
-                api_name="/predict_id_gradio"
-            )
-            return {"result": result}
-
-        # 2️⃣ لو جاية كـ File
-        if file:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-                tmp.write(await file.read())
-                tmp_path = tmp.name
-
-            result = client.predict(
-                image=tmp_path,
-                api_name="/predict_id_gradio"
-            )
-
-            # حذف الملف المؤقت بعد الاستخدام
-            try:
-                os.remove(tmp_path)
-            except Exception:
-                pass
-
-            return {"result": result}
-
+        result = client.predict(
+            image=handle_file(image_url),
+            api_name="/predict_id_gradio"
+        )
+        return {"result": result}
     except Exception as e:
-        # لو حصل أي خطأ يرجع JSON بدل crash
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        return {"error": str(e)}
+
