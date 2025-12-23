@@ -1,48 +1,49 @@
-from fastapi import FastAPI, Form, UploadFile, File
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, UploadFile, File, Form
 from gradio_client import Client, handle_file
-import requests, shutil, os
-from mangum import Mangum  # مهم جداً
+import tempfile
+import requests
 
-app = FastAPI(title="Egyptian ID Extractor")
+app = FastAPI(
+    title="ID Verification API",
+    description="FastAPI wrapper over Gradio Space",
+    version="1.0"
+)
 
-# Gradio Client
-GRADIO_SPACE = "MohamedKhalf30/ID_verfication_3"
-API_NAME = "/predict_id_gradio"
-client = Client(GRADIO_SPACE)
+# اسم الـ Gradio Space
+client = Client("MohamedKhalf30/ID_verfication_3")
+
 
 @app.post("/predict")
 async def predict(
-    image_url: str = Form(None),
-    file: UploadFile = File(None)
+    file: UploadFile = File(None),
+    image_url: str = Form(None)
 ):
-    tmp_path = "/tmp/temp_image.jpg"
+    """
+    يقبل:
+    - file (multipart)
+    - أو image_url (form field)
+    """
 
-    try:
-        if image_url:
-            resp = requests.get(image_url, stream=True)
-            if resp.status_code != 200:
-                return JSONResponse(content={"status": "failed", "message": "فشل تحميل الصورة"}, status_code=400)
-            with open(tmp_path, "wb") as f:
-                shutil.copyfileobj(resp.raw, f)
-        elif file:
-            with open(tmp_path, "wb") as f:
-                shutil.copyfileobj(file.file, f)
-        else:
-            return JSONResponse(content={"status": "failed", "message": "يرجى إرسال image_url أو رفع ملف"}, status_code=400)
+    # 1️⃣ لو جاية كـ URL
+    if image_url:
+        result = client.predict(
+            image=handle_file(image_url),
+            api_name="/predict_id_gradio"
+        )
+        return {"result": result}
 
-        result = client.predict(image=handle_file(tmp_path), api_name=API_NAME)
-        os.remove(tmp_path)
-        return JSONResponse(content={"status": "success", "result": result})
+    # 2️⃣ لو جاية كـ File
+    if file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+            tmp.write(await file.read())
+            tmp_path = tmp.name
 
-    except Exception as e:
-        return JSONResponse(content={"status": "failed", "message": str(e)}, status_code=500)
+        result = client.predict(
+            image=tmp_path,
+            api_name="/predict_id_gradio"
+        )
+        return {"result": result}
 
-@app.get("/health")
-async def health():
-    return {"status": "healthy", "message": "✅ API جاهز"}
-
-# ======================
-# Mangum Adapter
-# ======================
-handler = Mangum(app)
+    return {
+        "error": "Please provide file or image_url"
+    }
